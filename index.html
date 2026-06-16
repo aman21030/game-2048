@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#faf3e8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>ふわっち風 2048</title>
+<style>
+  :root{
+    --bg:#faf3e8;
+    --accent:#f5821f;
+    --ink:#5c5247;
+    --board-bg:#bbada0;
+    --empty:rgba(238,228,218,.45);
+    --card:#ece1d0;
+    --gap:2.4;   /* %（JS側の数値と合わせること） */
+    --cell:22;   /* %（JS側の数値と合わせること） */
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:"Hiragino Maru Gothic ProN","Hiragino Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    display:flex;justify-content:center;
+    overscroll-behavior:none;
+    -webkit-user-select:none;user-select:none;
+    touch-action:manipulation;
+  }
+  .wrap{
+    width:min(92vw,480px);
+    margin:auto;
+    padding:max(16px,env(safe-area-inset-top)) 0 max(24px,env(safe-area-inset-bottom));
+  }
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-bottom:14px;}
+  .title{margin:0;font-size:clamp(26px,8vw,40px);font-weight:800;color:var(--accent);letter-spacing:.01em;line-height:1;}
+  .title small{display:block;font-size:.34em;font-weight:700;color:var(--ink);opacity:.7;margin-top:6px;letter-spacing:.18em;}
+  .scores{display:flex;gap:8px;}
+  .stat{background:var(--board-bg);color:#fff;border-radius:10px;padding:7px 12px;text-align:center;min-width:62px;position:relative;overflow:hidden;}
+  .stat .label{display:block;font-size:11px;font-weight:700;letter-spacing:.12em;opacity:.85;}
+  .stat .value{display:block;font-size:20px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums;}
+  .gainpop{position:absolute;left:0;right:0;top:6px;color:#fff;font-weight:800;font-size:16px;opacity:0;pointer-events:none;animation:gain .6s ease-out;}
+  @keyframes gain{0%{opacity:.9;transform:translateY(0);}100%{opacity:0;transform:translateY(-22px);}}
+
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;}
+  .bar p{margin:0;font-size:13px;line-height:1.5;opacity:.85;}
+  .btn{
+    appearance:none;border:none;cursor:pointer;
+    background:var(--accent);color:#fff;font-weight:800;font-size:14px;
+    padding:11px 16px;border-radius:10px;white-space:nowrap;
+    box-shadow:0 2px 0 #c96a12;transition:transform .05s ease;
+  }
+  .btn:active{transform:translateY(2px);box-shadow:0 0 0 #c96a12;}
+
+  .board{
+    position:relative;width:100%;aspect-ratio:1/1;
+    background:var(--board-bg);border-radius:14px;padding:0;
+    touch-action:none;
+  }
+  .cell{
+    position:absolute;width:calc(var(--cell)*1%);height:calc(var(--cell)*1%);
+    background:var(--empty);border-radius:8px;
+  }
+  .tile{
+    position:absolute;width:calc(var(--cell)*1%);height:calc(var(--cell)*1%);
+    display:flex;align-items:center;justify-content:center;
+    border-radius:8px;font-weight:800;font-variant-numeric:tabular-nums;
+    transition:left .12s ease,top .12s ease;
+    will-change:left,top;z-index:2;
+  }
+  .tile-new{animation:appear .16s ease-out .1s backwards;}
+  .tile-merged{animation:pop .16s ease;z-index:3;}
+  @keyframes appear{0%{transform:scale(0);}100%{transform:scale(1);}}
+  @keyframes pop{0%{transform:scale(1);}50%{transform:scale(1.16);}100%{transform:scale(1);}}
+
+  .overlay{
+    position:absolute;inset:0;border-radius:14px;
+    background:rgba(250,243,232,.78);backdrop-filter:blur(2px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+    opacity:0;pointer-events:none;transition:opacity .25s ease;z-index:5;
+  }
+  .overlay.show{opacity:1;pointer-events:auto;}
+  .overlay h2{margin:0;font-size:clamp(26px,9vw,40px);font-weight:800;color:var(--accent);}
+  .overlay .final{font-size:15px;font-weight:700;}
+
+  .hint{margin:16px 2px 0;font-size:12px;line-height:1.6;opacity:.6;text-align:center;}
+
+  @media (prefers-reduced-motion:reduce){
+    .tile{transition:none;}
+    .tile-new,.tile-merged{animation:none;}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1 class="title">2048<small>FUWACCHI STYLE</small></h1>
+      <div class="scores">
+        <div class="stat"><span class="label">スコア</span><span class="value" id="score">0</span></div>
+        <div class="stat"><span class="label">ベスト</span><span class="value" id="best">0</span></div>
+      </div>
+    </header>
+
+    <div class="bar">
+      <p>同じ数字をくっつけて<br>大きな数を目指そう。</p>
+      <button class="btn" id="new">あたらしく始める</button>
+    </div>
+
+    <div class="board" id="board">
+      <div class="overlay" id="overlay">
+        <h2 id="overmsg">ゲームオーバー</h2>
+        <div class="final" id="final"></div>
+        <button class="btn" id="retry">もう一度</button>
+      </div>
+    </div>
+
+    <p class="hint">スマホ：上下左右にスワイプ ／ PC：矢印キーまたは W A S D</p>
+  </div>
+
+<script>
+"use strict";
+
+/* ===== 設定 ===== */
+const SIZE = 4;
+const GAP = 2.4;   // CSSの --gap と同じ値
+const CELL = 22;   // CSSの --cell と同じ値
+const pos = (i) => GAP + i * (CELL + GAP);   // i番目のマスの位置(%)
+
+const VECTORS = {
+  up:    { dr:-1, dc:0 },
+  down:  { dr: 1, dc:0 },
+  left:  { dr: 0, dc:-1 },
+  right: { dr: 0, dc:1 },
+};
+
+/* ===== 状態 ===== */
+let grid;          // SIZE×SIZE。タイルオブジェクトか null
+let score, best, nextId, over;
+const tileEls = new Map();   // id -> DOM要素
+
+const boardEl   = document.getElementById("board");
+const scoreEl   = document.getElementById("score");
+const bestEl    = document.getElementById("best");
+const overlayEl = document.getElementById("overlay");
+const overMsgEl = document.getElementById("overmsg");
+const finalEl   = document.getElementById("final");
+
+/* ===== ベストスコアの保存（使えない環境でも落ちないように） ===== */
+function loadBest(){ try { return parseInt(localStorage.getItem("fuwacchi2048_best")||"0",10)||0; } catch(e){ return 0; } }
+function saveBest(v){ try { localStorage.setItem("fuwacchi2048_best", String(v)); } catch(e){} }
+
+/* ===== 盤面のセットアップ ===== */
+function emptyGrid(){ return Array.from({length:SIZE},()=>Array(SIZE).fill(null)); }
+
+function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+
+function addRandomTile(){
+  const empties=[];
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(!grid[r][c]) empties.push([r,c]);
+  if(!empties.length) return;
+  const [r,c]=empties[Math.floor(Math.random()*empties.length)];
+  grid[r][c]={ id:nextId++, value:(Math.random()<0.9?2:4), row:r, col:c, isNew:true };
+}
+
+/* ===== 移動と合体（Node/Rubyで検証済みのアルゴリズム） ===== */
+function buildTraversals(vec){
+  const rows=[...Array(SIZE).keys()];
+  const cols=[...Array(SIZE).keys()];
+  if(vec.dr===1) rows.reverse();   // 下向きは下の行から処理
+  if(vec.dc===1) cols.reverse();   // 右向きは右の列から処理
+  return {rows,cols};
+}
+function findFarthest(r,c,vec){
+  let prev;
+  do{ prev={r,c}; r+=vec.dr; c+=vec.dc; }
+  while(inBounds(r,c) && grid[r][c]===null);
+  return { farthest:prev, next: inBounds(r,c) ? {r,c} : null };
+}
+function move(dir){
+  const vec=VECTORS[dir];
+  const {rows,cols}=buildTraversals(vec);
+  let moved=false, gained=0;
+
+  // フラグ初期化
+  for(const row of grid) for(const t of row) if(t){ t.mergedThisTurn=false; t.isNew=false; t.justMerged=false; }
+
+  rows.forEach(r=>cols.forEach(c=>{
+    const tile=grid[r][c];
+    if(!tile) return;
+    const {farthest,next}=findFarthest(r,c,vec);
+    const nextTile = next ? grid[next.r][next.c] : null;
+
+    if(nextTile && nextTile.value===tile.value && !nextTile.mergedThisTurn){
+      // 動かすタイルが生き残って、行き先のタイルを吸収（合体）
+      tile.value*=2; tile.row=next.r; tile.col=next.c;
+      tile.mergedThisTurn=true; tile.justMerged=true;
+      grid[next.r][next.c]=tile;
+      grid[r][c]=null;
+      gained+=tile.value;
+      moved=true;
+    } else if(farthest.r!==r || farthest.c!==c){
+      tile.row=farthest.r; tile.col=farthest.c;
+      grid[farthest.r][farthest.c]=tile;
+      grid[r][c]=null;
+      moved=true;
+    }
+  }));
+
+  return {moved,gained};
+}
+
+/* ===== ゲームオーバー判定 ===== */
+function isGameOver(){
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(!grid[r][c]) return false;
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const v=grid[r][c].value;
+    if(c+1<SIZE && grid[r][c+1].value===v) return false;
+    if(r+1<SIZE && grid[r+1][c].value===v) return false;
+  }
+  return true;
+}
+
+/* ===== 見た目 ===== */
+const COLORS={
+  2:["#eee4da","#766e64"], 4:["#ede0c8","#766e64"], 8:["#f2b179","#f9f6f2"],
+  16:["#f59563","#f9f6f2"], 32:["#f67c5f","#f9f6f2"], 64:["#f65e3b","#f9f6f2"],
+  128:["#edcf72","#f9f6f2"], 256:["#edcc61","#f9f6f2"], 512:["#edc850","#f9f6f2"],
+  1024:["#edc53f","#f9f6f2"], 2048:["#edc22e","#f9f6f2"],
+};
+function fontPx(value){
+  const cellPx = boardEl.clientWidth * (CELL/100);
+  const digits = String(value).length;
+  const factor = digits<=2 ? 0.46 : digits===3 ? 0.36 : 0.28;
+  return Math.round(cellPx*factor)+"px";
+}
+function paint(el,t){
+  const [bg,fg]=COLORS[t.value] || ["#3c3a32","#f9f6f2"];
+  el.style.background=bg; el.style.color=fg;
+  el.textContent=t.value;
+  el.style.fontSize=fontPx(t.value);
+}
+function place(el,t){ el.style.left=pos(t.col)+"%"; el.style.top=pos(t.row)+"%"; }
+
+function render(){
+  const present=new Set();
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const t=grid[r][c];
+    if(!t) continue;
+    present.add(t.id);
+    let el=tileEls.get(t.id);
+    if(!el){
+      el=document.createElement("div");
+      el.className="tile";
+      tileEls.set(t.id,el);
+      boardEl.appendChild(el);
+      place(el,t);                       // 生成時に位置を確定（ここでは動かない）
+      if(t.isNew) el.classList.add("tile-new");
+    }else{
+      place(el,t);                       // 既存タイルはCSSのtransitionでスライド
+    }
+    paint(el,t);
+    if(t.justMerged){
+      el.classList.remove("tile-merged"); void el.offsetWidth; el.classList.add("tile-merged");
+    }
+  }
+  // 吸収されて消えたタイルのDOMを片付ける（スライド後に削除）
+  for(const [id,el] of tileEls){
+    if(!present.has(id)){
+      tileEls.delete(id);
+      setTimeout(()=>el.remove(),130);
+    }
+  }
+}
+
+function updateScore(gained){
+  scoreEl.textContent=score;
+  if(score>best){ best=score; bestEl.textContent=best; saveBest(best); }
+  if(gained>0){
+    const card=scoreEl.parentElement;
+    const pop=document.createElement("span");
+    pop.className="gainpop"; pop.textContent="+"+gained;
+    card.appendChild(pop);
+    setTimeout(()=>pop.remove(),600);
+  }
+}
+
+/* ===== 1手すすめる ===== */
+function handleMove(dir){
+  if(over) return;
+  const {moved,gained}=move(dir);
+  if(!moved) return;
+  score+=gained;
+  addRandomTile();
+  render();
+  updateScore(gained);
+  if(isGameOver()){
+    over=true;
+    finalEl.textContent="スコア "+score;
+    overMsgEl.textContent="ゲームオーバー";
+    overlayEl.classList.add("show");
+  }
+}
+
+/* ===== 新しいゲーム ===== */
+function newGame(){
+  // 既存タイルのDOMを消す
+  for(const [,el] of tileEls) el.remove();
+  tileEls.clear();
+  grid=emptyGrid(); score=0; nextId=1; over=false;
+  overlayEl.classList.remove("show");
+  scoreEl.textContent="0";
+  addRandomTile(); addRandomTile();
+  render();
+}
+
+/* ===== 背景のマス目を一度だけ描く ===== */
+function drawCells(){
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const cell=document.createElement("div");
+    cell.className="cell";
+    cell.style.left=pos(c)+"%"; cell.style.top=pos(r)+"%";
+    boardEl.insertBefore(cell, overlayEl);
+  }
+}
+
+/* ===== 入力：キーボード ===== */
+const KEY={ ArrowUp:"up",ArrowDown:"down",ArrowLeft:"left",ArrowRight:"right",
+  w:"up",s:"down",a:"left",d:"right",W:"up",S:"down",A:"left",D:"right" };
+window.addEventListener("keydown",(e)=>{
+  const dir=KEY[e.key];
+  if(dir){ e.preventDefault(); handleMove(dir); }
+});
+
+/* ===== 入力：スワイプ ===== */
+let sx=0, sy=0, tracking=false;
+const THRESHOLD=24;  // この距離以上動かしたらスワイプとみなす(px)
+boardEl.addEventListener("touchstart",(e)=>{
+  const t=e.touches[0]; sx=t.clientX; sy=t.clientY; tracking=true;
+},{passive:true});
+boardEl.addEventListener("touchmove",(e)=>{ e.preventDefault(); },{passive:false});
+boardEl.addEventListener("touchend",(e)=>{
+  if(!tracking) return; tracking=false;
+  const t=e.changedTouches[0];
+  const dx=t.clientX-sx, dy=t.clientY-sy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<THRESHOLD) return;
+  if(Math.abs(dx)>Math.abs(dy)) handleMove(dx>0?"right":"left");
+  else handleMove(dy>0?"down":"up");
+},{passive:true});
+
+/* ===== ボタン ===== */
+document.getElementById("new").addEventListener("click",newGame);
+document.getElementById("retry").addEventListener("click",newGame);
+
+/* ===== 画面サイズ変更でフォントだけ調整 ===== */
+window.addEventListener("resize",()=>{
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++){
+    const t=grid&&grid[r][c]; if(!t) continue;
+    const el=tileEls.get(t.id); if(el) el.style.fontSize=fontPx(t.value);
+  }
+});
+
+/* ===== 起動 ===== */
+best=loadBest(); bestEl.textContent=best;
+drawCells();
+newGame();
+</script>
+</body>
+</html>
